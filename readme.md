@@ -11,9 +11,19 @@
   - <a href='#3-5'>3.5 Category中的Load方法</a>
   - <a href='#3-6'>3.6 Category与关联对象</a>
 
-<a href='#4'>四.KVO 原理</a>
+<a href='#4'>四. KVO 原理</a>
 
 <a href='#5'>五. iOS App 启动过程 </a>
+
+<a href='#6'>六. Block原理</a>
+
+   - <a href='#6-1'> Block 基本原理</a>
+   - <a href='#6-1'> __block 关键字捕获原理 </a>
+
+<a href='#9'>九. ARC </a>
+
+   - <a href='#9-1'> ARC 基本原理 </a>
+   - <a href='#9-2'> autorelease pool 原理</a>
 
 <h2 id='1'> 一、对象内存模型 </h2>
 
@@ -456,11 +466,163 @@ int main() {
 <h3 id='6-3'> block 引起的循环引用原理 </h3>
 
 
-<h2 id='7'> GCD </h2>
+<!--<h2 id='7'> GCD </h2>
 
 <h2 id='8'> RunLoop </h2>
-
+-->
 <h2 id='9'> ARC </h2>
+
+<h3 id='9-1'> ARC 基本原理 </h3>
+
+使用ARC，开发者不再需要手动的`retain/release/autorelease`. 编译器会自动插入对应的代码，再结合`Objective-C`的`runtime`，实现自动引用计数。
+
+如:
+
+```objc
+NSObject * obj;
+{
+    obj = [[NSObject alloc] init]; //引用计数为1
+}
+NSLog(@"%@",obj);
+```
+
+```objc
+NSObject * obj;
+{
+    obj = [[NSObject alloc] init]; //引用计数为1
+    [obj relrease]
+}
+NSLog(@"%@",obj);
+```
+其中，`retain`,`release`的方法实现原理：
+
+```c++
+- (id)retain {
+    return ((id)self)->rootRetain();
+}
+inline id objc_object::rootRetain()
+{
+    if (isTaggedPointer()) return (id)this;
+    return sidetable_retain();
+}
+
+#if SUPPORT_MSB_TAGGED_POINTERS
+#   define TAG_MASK (1ULL<<63)
+#else
+#   define TAG_MASK 1
+
+inline bool 
+objc_object::isTaggedPointer() 
+{
+#if SUPPORT_TAGGED_POINTERS
+    return ((uintptr_t)this & TAG_MASK);
+#else
+    return false;
+#endif
+}
+```
+由`retain`方法的实现可知，有些对象如果支持使用 TaggedPointer，苹果会直接将其指针值作为引用计数返回；如果当前设备是 64 位环境并且使用 `Objective-C 2.0`，那么“一些”对象会使用其 `isa` 指针的一部分空间来存储它的引用计数；否则 `Runtime`会使用一张散列表来管理引用计数。
+
+```c++
+id objc_object::sidetable_retain()
+{
+    //获取table
+    SideTable& table = SideTables()[this];
+    //加锁
+    table.lock();
+    //获取引用计数
+    size_t& refcntStorage = table.refcnts[this];
+    if (! (refcntStorage & SIDE_TABLE_RC_PINNED)) {
+         //增加引用计数
+        refcntStorage += SIDE_TABLE_RC_ONE;
+    }
+    //解锁
+    table.unlock();
+    return (id)this;
+}
+```
+
+与`retain`类似，`release`方法也是如此的逻辑，只是增加了若引用计数为0，则销毁对象:
+
+```c++
+SideTable& table = SideTables()[this];
+bool do_dealloc = false;
+table.lock();
+//找到对应地址的
+RefcountMap::iterator it = table.refcnts.find(this);
+if (it == table.refcnts.end()) { //找不到的话，执行dellloc
+    do_dealloc = true;
+    table.refcnts[this] = SIDE_TABLE_DEALLOCATING;
+} else if (it->second < SIDE_TABLE_DEALLOCATING) {//引用计数小于阈值，dealloc
+    do_dealloc = true;
+    it->second |= SIDE_TABLE_DEALLOCATING;
+} else if (! (it->second & SIDE_TABLE_RC_PINNED)) {
+//引用计数减去1
+    it->second -= SIDE_TABLE_RC_ONE;
+}
+table.unlock();
+if (do_dealloc  &&  performDealloc) {
+    //执行dealloc
+    ((void(*)(objc_object *, SEL))objc_msgSend)(this, SEL_dealloc);
+}
+return do_dealloc;
+```
+
+再介绍下 `SideTable` 这个类，它用于管理引用计数表和 `weak` 表，并使用 `spinlock_lock` 自旋锁来防止操作表结构时可能的竞态条件。它用一个 64*128 大小的 `uint8_t` 静态数组作为 `buffer` 来保存所有的 `SideTable` 实例。并提供三个公有属性。
+
+```c++
+spinlock_t slock;//保证原子操作的自选锁
+RefcountMap refcnts;//保存引用计数的散列表
+weak_table_t weak_table;//保存 weak 引用的全局散列表
+```
+`weak` 表的作用是在对象执行 `dealloc` 的时候将所有指向该对象的 `weak` 指针的值设为 `nil`，避免悬空指针。这是 `weak` 表的结构：
+
+```c++
+struct weak_table_t {
+    weak_entry_t *weak_entries;
+    size_t    num_entries;
+    uintptr_t mask;
+    uintptr_t max_hash_displacement;
+};
+```
+
+苹果使用一个全局的 `weak` 表来保存所有的 `weak` 引用。并将对象作为键，`weak_entry_t` 作为值。`weak_entry_t` 中保存了所有指向该对象的 `weak` 指针。
+
+
+<h3 id='9-2'> autoreleasepool 原理</h3>
+
+`Autorelease`对象是在当前的`runloop`迭代结束时释放的，而它能够释放的原因是系统在每个`runloop`迭代中都加入了自动释放池`Push`和`Pop`
+
+`Autorelease`对象的各种方法都是对类`AutoreleasePoolPage`的封装，其中`AutoreleasePoolPage`类结构如下:
+
+![Autorelease结构](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/51530583gw1elj2ugt21wj20f109m3zl.jpg?raw=true)
+
+ - `AutoreleasePool`并没有单独的结构，而是由若干个`AutoreleasePoolPage`以双向链表的形式组合而成（分别对应结构中的parent指针和child指针）
+- `AutoreleasePool`是按线程一一对应的（结构中的`thread`指针指向当前线程）
+- `AutoreleasePoolPage`每个对象会开辟4096字节内存（也就是虚拟内存一页的大小），除了上面的实例变量所占空间，剩下的空间全部用来储存`autorelease`对象的地址
+- 上面的`id *next`指针作为游标指向栈顶最新add进来的`autorelease`对象的下一个位置
+- 一个`AutoreleasePoolPage`的空间被占满时，会新建一个`AutoreleasePoolPage`对象，连接链表，后来的`autorelease`对象在新的page加入
+
+所以，若当前线程中只有一个`AutoreleasePoolPage`对象，并记录了很多`autorelease`对象地址时内存如下图：
+![](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/51530583gw1elj5gvphtqj20dy0cx756.jpg?raw=true)
+
+图中的情况，这一页再加入一个`autorelease`对象就要满了（也就是`next`指针马上指向栈顶），这时就要执行上面说的操作，建立下一页`page`对象，与这一页链表连接完成后，新page的next指针被初始化在栈底（`begin`的位置），然后继续向栈顶添加新对象。
+
+所以，向一个对象发送`- autorelease`消息，就是将这个对象加入到当前`AutoreleasePoolPage`的栈顶`next`指针指向的位置
+
+每当进行一次`objc_autoreleasePoolPush`调用时，`runtime`向当前的`AutoreleasePoolPage`中`add`进一个哨兵对象，值为0（也就是个`nil`），那么这一个`page`就变成了下面的样子：
+
+![](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/51530583gw1elj5z7hawej20ji0dewff.jpg?raw=true)
+
+`objc_autoreleasePoolPush`的返回值正是这个哨兵对象的地址，被`objc_autoreleasePoolPop`(哨兵对象)作为入参，于是：
+
+- 根据传入的哨兵对象地址找到哨兵对象所处的`page`
+- 在当前`page`中，将晚于哨兵对象插入的所有`autorelease`对象都发送一次`- release`消息，并向回移动`next`指针到正确位置
+- 从最新加入的对象一直向前清理，可以向前跨越若干个`page`，直到哨兵所在的`page`
+
+
+refers：[深入理解Objective C的ARC机制](http://www.cocoachina.com/ios/20170427/19109.html)、[Objective-C 引用计数原理](http://yulingtianxia.com/blog/2015/12/06/The-Principle-of-Refenrence-Counting/)、[黑幕背后的Autorelease
+](http://blog.sunnyxx.com/2014/10/15/behind-autorelease/)
 
 
 - 属性关键字
