@@ -1,9 +1,6 @@
-[一. 对象内存模型](#1)
+<a href='#1'>一.objc对象内存模型</a>
 
-　[1.1二级目录](#1.1)
-　　[1.1.1三级目录](#1.1.1)
-　　
-[一. 对象内存模型](#1)
+<a href='#2'>二.Runtime</a>
 
 <a href='#3'>三.Category</a>
 
@@ -13,10 +10,17 @@
   - <a href='#3-4'>3.4 Category加载</a>
   - <a href='#3-5'>3.5 Category中的Load方法</a>
   - <a href='#3-6'>3.6 Category与关联对象</a>
-  
+
+<a href='#4'>四.KVO 原理</a>
+
+<a href='#5'>五. iOS App 启动过程 </a>
+
 <h2 id='1'> 一、对象内存模型 </h2>
+
 - isa指针的作用
+
 - 对象的isa指向类对象，类对象的isa指向元类，元类的isa指向根元类，根元类的isa指向自己。
+
 - 类对象的`superClass`指针指向父类对象，直到指向根类对象，根类对象的`superClass`指向`nil`，元类也如此，直到根元类，根元类的`superClass`指向根类对象
 
 - 对象的内存分布
@@ -48,7 +52,8 @@
 	
 		```
 		
-## Runtime
+<h2 id='2'> Runtime </h2>
+
 1. 消息接收
 	- 编译时间确定接受到的消息，运行时间通过`@selector`找到对应的方法。
 	- 消息接受者如果能直接找到`@selector`则直接执行方法，否则转发消息。若最终找不到，则运行时崩溃。
@@ -113,7 +118,7 @@
 
 		这些信息会把帮助对象的析构，使得对象析构更快。
 		
-## Categoty
+<h2 id='3'> Categoty </h2>
 
 推荐阅读：[美团技术博客：深入理解Objective-C：Category
 ](https://tech.meituan.com/DiveIntoCategory.html)
@@ -195,7 +200,9 @@ typedef struct `categoty`_t {
 @end
 ```
 关联对象存储在一张全局的`map`里，其中`map`的`key`是被关联的对象的指针地址，该`map`的`value`存储的是另外一张`map`，此处称为`AssociationsHashMap`，该`AssociationsHashMap`的kv分别是设置关联对象时的kv。
-## KVO
+
+<h3 id = '4'> KVO </h3>
+
 - 原理：
 	1. `isa swizzling`方法，通过`runtime`动态创建一个中间类，继承自被监听的类。
 	2. 使原有类的`isa`指针指向这个中间类，同时重写改类的`Class`方法，使得该类的`Class`方法返回自己而不是`isa`的指向。
@@ -254,15 +261,208 @@ typedef struct `categoty`_t {
         block(self, nil, newValue);
     });
 	```
-## 	
+		
+<h2 id='6'> Block </h2>
+
+<h3 id = '6-1'> Block 基本原理 </h3>
+
+```objc
+int main() {
+    void (^blk)(void) = ^{
+        (printf("hello world!"));
+    };
+    blk();
+    return 0;
+}
+```
+
+如上，通过`clang`转换为`cpp`源码，截取关键部分:
+
+```c++
+// block 的真面目
+struct __block_impl {
+  void *isa;
+  int Flags;
+  int Reserved;
+  void *FuncPtr;
+};
+
+// ..... 一大坨无关代码
+
+// 通过这个结构体包装block，用于快速构造block
+struct __main_block_impl_0 {
+  struct __block_impl impl;
+  struct __main_block_desc_0* Desc;
+  __main_block_impl_0(void *fp, struct __main_block_desc_0 *desc, int flags=0) {
+    impl.isa = &_NSConcreteStackBlock;
+    impl.Flags = flags;
+    impl.FuncPtr = fp;
+    Desc = desc;
+  }
+};
+static void __main_block_func_0(struct __main_block_impl_0 *__cself) {
+
+        (printf("hello world!"));
+    }
+
+static struct __main_block_desc_0 {
+  size_t reserved;
+  size_t Block_size;
+} __main_block_desc_0_DATA = { 0, sizeof(struct __main_block_impl_0)};
+int main() {
+    void (*blk)(void) = ((void (*)())&__main_block_impl_0((void *)__main_block_func_0, &__main_block_desc_0_DATA));
+    ((void (*)(__block_impl *))((__block_impl *)blk)->FuncPtr)((__block_impl *)blk);
+    return 0;
+}
+```
+比较核心的是以下内容:`__block_impl`结构体，`__mian_block_impl_0`结构体，`__main_block_func_0`函数，`&_NSConcreteStackBlock`，`__main_block_desc_0`结构体。
+
+- `__block_impl`结构体:
+
+	该结构体定义在源文件上方，其中`isa`指针指向当前`block`对象类对象，`FuncPtr`指向`block`保存的函数指针。
+
+- `__main_block_desc_0`结构体:
+
+	- 用于保存`__main_block_impl_0 `结构体大小等信息。
 	
-### 5. + Load 与 + Initialize
+- `__main_block_func_0`静态函数:
+	
+	- 用于存储当前`block`的代码块。
 
-### 6. App启动过程	
+- `__main_block_impl_0`结构体:
 
-- Block
-- RunLoop
-- GCD
+	该结构体包装了`__block_impl`结构体，同时包含`__main_block_desc_0`结构体。对外提供一个构造函数，构造函数需要传递函数指针(`__main_block_func_0`静态函数)、`__main_block_desc_0`实例。
+	
+由此我们可知，上述一个简单的`block`定义及调用过程被转换为了：
+
+1. 定义`block`变量相当于调用`__main_block_impl_0`构造函数，通过函数指针传递代码块进`__main_block_impl_0`实例。
+
+2. 构造函数内部，将外部传递进来的`__main_block_func_0`函数指针，设置内部实际的`block`变量(`__block_impl`类型的结构体)的函数指针。
+
+3. 调用`block`时，取出`__mian_block_impl_0`类型结构体中的`__block_impl`类型的结构体的函数指针(`__main_block_func_0`)并调用。
+
+至此，一个简单的`block`原理描述完毕。
+	
+<h3 id='6-2'> __block 捕获原理 </h3>
+
+`block`内部可以直接使用外部变量，但是在不加`__block`修饰符的情况下，是无法修改的。比如下面这段代码：
+
+```objc
+int main() {
+    int a = 1;
+    void (^blk)(void) = ^{
+        printf("%d", a);
+    };
+    blk();
+    return 0;
+}
+```
+
+经过`cpp`重写后:
+
+```c++
+struct __main_block_impl_0 {
+  struct __block_impl impl;
+  struct __main_block_desc_0* Desc;
+  int a;
+  __main_block_impl_0(void *fp, struct __main_block_desc_0 *desc, int _a, int flags=0) : a(_a) {
+    impl.isa = &_NSConcreteStackBlock;
+    impl.Flags = flags;
+    impl.FuncPtr = fp;
+    Desc = desc;
+  }
+};
+static void __main_block_func_0(struct __main_block_impl_0 *__cself) {
+  int a = __cself->a; // bound by copy
+
+        printf("%d", a);
+    }
+
+static struct __main_block_desc_0 {
+  size_t reserved;
+  size_t Block_size;
+} __main_block_desc_0_DATA = { 0, sizeof(struct __main_block_impl_0)};
+int main() {
+    int a = 1;
+    void (*blk)(void) = ((void (*)())&__main_block_impl_0((void *)__main_block_func_0, &__main_block_desc_0_DATA, a));
+    ((void (*)(__block_impl *))((__block_impl *)blk)->FuncPtr)((__block_impl *)blk);
+    return 0;
+}
+```
+经过<a href='#6-1'>上一节的讨论</a>，我们知道代码块是由`__main_block_impl_0`构造函数传通过函数指针传递进来的。在这节的例子中，可以发现构造函数中多了一个`int _a`参数。同时`__main_block_impl_0`结构体也多了一个`int a`属性用于保存`block`内部使用的变量`a`。
+
+由于构造函数的参数为整形，在`c++`中，函数的形参为值拷贝，也就是说`__main_block_impl_0`结构体中的属性`a`，是外部`a`变量的拷贝。在代码块内部(也就是`__main_block_func_0 `函数)我们通过`__cself`指针拿到`a`变量。故我们在代码块中是无法修改`a`变量的，同时如果外部`a`变量被修改了，那么`block`内部也是无法得知的。
+
+如果想要在内部修改`a`变量，可以通过`__block`关键字:
+
+```objc
+int main() {
+    __block int number = 1;
+    void (^blk)(void) = ^{
+        number = 3;
+        printf("%d", number);
+    };
+    blk();
+    return 0;
+}
+```
+```c++
+struct __Block_byref_number_0 {
+  void *__isa;
+__Block_byref_number_0 *__forwarding;
+ int __flags;
+ int __size;
+ int number;
+};
+
+struct __main_block_impl_0 {
+  struct __block_impl impl;
+  struct __main_block_desc_0* Desc;
+  __Block_byref_number_0 *number; // by ref
+  __main_block_impl_0(void *fp, struct __main_block_desc_0 *desc, __Block_byref_number_0 *_number, int flags=0) : number(_number->__forwarding) {
+    impl.isa = &_NSConcreteStackBlock;
+    impl.Flags = flags;
+    impl.FuncPtr = fp;
+    Desc = desc;
+  }
+};
+static void __main_block_func_0(struct __main_block_impl_0 *__cself) {
+  __Block_byref_number_0 *number = __cself->number; // bound by ref
+
+        (number->__forwarding->number) = 3;
+        printf("%d", (number->__forwarding->number));
+    }
+static void __main_block_copy_0(struct __main_block_impl_0*dst, struct __main_block_impl_0*src) {_Block_object_assign((void*)&dst->number, (void*)src->number, 8/*BLOCK_FIELD_IS_BYREF*/);}
+
+static void __main_block_dispose_0(struct __main_block_impl_0*src) {_Block_object_dispose((void*)src->number, 8/*BLOCK_FIELD_IS_BYREF*/);}
+
+static struct __main_block_desc_0 {
+  size_t reserved;
+  size_t Block_size;
+  void (*copy)(struct __main_block_impl_0*, struct __main_block_impl_0*);
+  void (*dispose)(struct __main_block_impl_0*);
+} __main_block_desc_0_DATA = { 0, sizeof(struct __main_block_impl_0), __main_block_copy_0, __main_block_dispose_0};
+int main() {
+    __attribute__((__blocks__(byref))) __Block_byref_number_0 number = {(void*)0,(__Block_byref_number_0 *)&number, 0, sizeof(__Block_byref_number_0), 1};
+    void (*blk)(void) = ((void (*)())&__main_block_impl_0((void *)__main_block_func_0, &__main_block_desc_0_DATA, (__Block_byref_number_0 *)&number, 570425344));
+    ((void (*)(__block_impl *))((__block_impl *)blk)->FuncPtr)((__block_impl *)blk);
+    return 0;
+}
+```
+可以看到整形`number`变量变成了`__Block_byref_number_0`结构体实例，在`__main_block_impl_0`构造函数中，将该实例的指针传递进来。`__Block_byref_number_0`结构体中，通过`__forwarding`指向自己，整形`number`存储具体的值。
+
+上节提到，构造函数中的参数是值拷贝，故此处代码块内部拿到的指针拷贝一样可以操作外部的`__Block_byref_number_0`结构体中的值，通过这种方式实现了`block`内部修改外部值。
+
+<h3 id='6-3'> block 引起的循环引用原理 </h3>
+
+
+<h2 id='7'> GCD </h2>
+
+<h2 id='8'> RunLoop </h2>
+
+<h2 id='9'> ARC </h2>
+
+
 - 属性关键字
 - `categoty` Extension
 - Autorelease Pool
