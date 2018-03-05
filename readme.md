@@ -15,7 +15,6 @@
 
 <a href='#5'>五. iOS App 启动过程 </a>
 
-
 <a href='#6'>六. Block原理</a>
 
    - <a href='#6-1'> Block 基本原理</a>
@@ -41,7 +40,26 @@
 
    - <a href='#9-1'> ARC 基本原理 </a>
    - <a href='#9-2'> autorelease pool 原理</a>
+   
+<a href='#10'>十. Tableview 优化 </a>
 
+<a href='#11'>十一. YYModel </a>
+
+<a href='#12'>十二. Weex </a>
+
+<a href='#13'>十三. VueJS </a>
+
+<a href='#10'> 十. TCP/IP </a>   
+
+   - <a href='#10-1'> OSI七层模型 </a>
+   - <a href='#10-2'> 运输层原理 </a>
+   - <a href='#10-3'> Socket </a> 
+   - <a href='#10-4'> 可靠数据传输原理 </a>
+   - <a href='#10-5'> TCP 拥塞控制与滑动窗口 </a>
+   - <a href='#10-6'> TCP 三次握手/四次挥手 </a>
+   
+<a href='#11'> 十一. HTTP/HTTPS </a>
+   
 <h2 id='1'> 一、对象内存模型 </h2>
 
 - isa指针的作用
@@ -969,23 +987,38 @@ struct weak_table_t {
 - 在当前`page`中，将晚于哨兵对象插入的所有`autorelease`对象都发送一次`- release`消息，并向回移动`next`指针到正确位置
 - 从最新加入的对象一直向前清理，可以向前跨越若干个`page`，直到哨兵所在的`page`
 
+<h2 id='#12'> 十二. Weex </h2>
+
+**本节不讲解如何使用weex,只关注weex iOS部分原理。如有兴趣，可自行去官网学习基本知识**
+
+<h3 id='#12-1'> Weex 基本结构 </h3>
+
+`Weex`目前最新版本支持`Rax`与`VueJS`，其中`Rax`即为`React`语法，目的使前端开发者更易上手。
+
+`Weex SDK`结构主要有三部分组成:
+
+![weex sdk](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/2025169885-597d7aa3b6cd8_articlex.png?raw=true)
+
+1. 顶层`framework`
+	- 此层的作用是编译目标文件至js，比如如果使用的`.vue`文件，就将此文件通过`framework`编译成对应的`jsBundle`。此层其实是`weex`集成了`vuejs`或者`react`。
+	
+2. 中间层`weex runtime`
+	- 此层的作用是承接上层的`jsbundle`文件，在`iOS`上，`weex sdk`通过使用系统`JSCore`来跑`jsbundle`文件。通过理解js文件，开始执行各种指令。比如在`vuejs`中的`creatElement`指令，会被转换为`creatNative`指令发送给下一层。通过这种方式，隔离了前端开发者与客端户开发工作，使得前端开发者也可以通过常用的js语法生成`native`组件，调用原生的各种方法。
+
+3. 底层`Render Engine`
+	- 此层承接`weex runtime`传来的各种指令，开始执行`weex sdk`中"预置"的`native`代码。
+
+<h3 id='#12-2'> Weex 消息传递机制 </h3>
 
 
-
-- 属性关键字
-- @synthesize和@dynamic
-- 属性
+<!--- 属性关键字
 - 多态
-- @dynamic关键字
-- YYModel基本原理
-- 锁	1
-
-## 项目
-- weex原理
+- 锁	-->
+<!--- weex原理
 - vue
-- nodejs EventLoop
+- nodejs EventLoop-->
 
-## 操作系统
+<!--## 操作系统
 - 线程进程
 - 锁
 
@@ -994,5 +1027,5 @@ struct weak_table_t {
 	- https
 	- get/post
 
-- tcp/ip
+- tcp/ip-->
 	
