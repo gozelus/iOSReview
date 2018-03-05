@@ -26,8 +26,16 @@
 <a href='#8'>八. Runloop </a>
 
    - <a href='#8-1'> Runloop基本原理 </a>
-   - 
-
+   - <a href='#8-2'> Runloop models </a>
+   - <a href='#8-3'> Runloop 处理事件原理 </a>
+   - <a href='#8-4'> Runloop 常见应用 </a>
+     - <a href='#8-4-1'> AutoreleasePool </a>
+     - <a href='#8-4-2'> 事件响应 </a>
+     - <a href='#8-4-3'> 界面更新 </a>
+     - <a href='#8-4-4'> 定时器 </a>
+     - <a href='#8-4-5'> PerformSelecter </a>
+     - <a href='#8-4-6'> AFN 保活 </a>
+     - <a href='#8-4-7'> AsyncDisplayKit </a>
 
 <a href='#9'>九. ARC </a>
 
@@ -125,17 +133,6 @@
 5. `Method Swizzling` 方法混淆
 	- 作用是修改`SEL`对应的`IMP`指针
 	- 用于`debug`，避免数组越界等问题.
- 
-
-## ARC
-1. 引用计数如何存储？
-	- 有些对象如果支持使用`TaggedPointer`，苹果会直接将其指针值作为引用计数返回；如果当前设备是 64 位环境并且使用 `Objective-C 2.0`，那么“一些”对象会使用其 `isa` 指针的一部分空间来存储它的引用计数；否则 `Runtime` 会使用一张**散列表**来管理引用计数。
-	- 优化后的`isa`指针不仅仅包括常见的对象信息，还包括了如：
-		- 对象是否在析构
-		- 对象是否拥有`weak`对象
-		- 对象是否包含`associated object`等等
-
-		这些信息会把帮助对象的析构，使得对象析构更快。
 		
 <h2 id='3'> Categoty </h2>
 
@@ -553,6 +550,9 @@ CFRunLoopRef CFRunLoopGetCurrent() {
 
 <h3 id= '8-2'> Models in Runloop </h3>
 
+
+![runloop](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/RunLoop_0.png?raw=true)
+
 一个`RunLoop `包含若干个 `Mode`，每个 `Mode` 又包含若干个 `Source/Timer/Observer`。每次调用 `RunLoop` 的主函数时，只能指定其中一个 `Mode`，这个`Mode`被称作 `CurrentMode`。如果需要切换 `Mode`，只能退出 `Loop`，再重新指定一个` Mode `进入。这样做主要是为了分隔开不同组的 `Source/Timer/Observer`，让其互不影响。
 
 1. Source:
@@ -606,7 +606,9 @@ struct __CFRunLoop {
 
 有时你需要一个 `Timer`，在两个 `Mode` 中都能得到回调，一种办法就是将这个 `Timer` 分别加入这两个 `Mode`。还有一种方式，就是将 `Timer` 加入到顶层的` RunLoop` 的 “commonModeItems” 中。”commonModeItems” 被 `RunLoop` 自动更新到所有具有”Common”属性的 `Mode` 里去
 
-<h3 id='8-3'> Runloop 处理事件的逻辑 <h3 id='8-4'>
+<h3 id='8-3'> Runloop 处理事件的逻辑 </h3>
+
+![Runloop逻辑](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/RunLoop_1.png?raw=true)
 
 ```c++
 /// 用DefaultMode启动
@@ -724,6 +726,7 @@ int CFRunLoopRunSpecific(runloop, modeName, seconds, stopAfterHandle) {
 <h3 id='8-4'> Runloop 常见用法 </h3>
 
 <h4 id='8-4-1'> Autorelease Pool </h4>
+
 App启动后，苹果在主线程 `RunLoop` 里注册了两个 `Observer`，其回调都是 `_wrapRunLoopWithAutoreleasePoolHandler()`。
 
 第一个 `Observer` 监视的事件是 `Entry(即将进入Loop)`，其回调内会调用 `_objc_autoreleasePoolPush()` 创建自动释放池。其 order 是-2147483647，优先级最高，保证创建释放池发生在其他所有回调之前。
@@ -731,6 +734,82 @@ App启动后，苹果在主线程 `RunLoop` 里注册了两个 `Observer`，其�
 第二个 `Observer` 监视了两个事件： `BeforeWaiting(准备进入休眠) 时调用_objc_autoreleasePoolPop()` 和 `_objc_autoreleasePoolPush()` 释放旧的池并创建新池；`Exit(即将退出Loop)` 时调用 `_objc_autoreleasePoolPop()` 来释放自动释放池。这个 Observer 的 order 是 2147483647，优先级最低，保证其释放池子发生在其他所有回调之后。
 
 在主线程执行的代码，通常是写在诸如事件回调、Timer回调内的。这些回调会被 `RunLoop` 创建好的 `AutoreleasePool` 环绕着，所以不会出现内存泄漏，开发者也不必显示创建 `Pool` 了
+
+<h4 id='8-4-2'> 事件响应 </h4>
+
+苹果注册了一个 `Source1` (基于 `mach port` 的) 用来接收系统事件，其回调函数为 `__IOHIDEventSystemClientQueueCallback()`。
+
+当一个硬件事件(触摸/锁屏/摇晃等)发生后，首先由 `IOKit.framework` 生成一个 `IOHIDEvent` 事件并由 `SpringBoard` 接收。`SpringBoard `只接收按键(锁屏/静音等)，触摸，加速，接近传感器等几种` Event`，随后用 `mach port` 转发给需要的App进程。随后苹果注册的那个 `Source1` 就会触发回调，并调用 `_UIApplicationHandleEventQueue()` 进行应用内部的分发。
+
+`_UIApplicationHandleEventQueue()` 会把 `IOHIDEvent` 处理并包装成 `UIEvent` 进行处理或分发，其中包括识别 `UIGesture`/处理屏幕旋转/发送给` UIWindow` 等。通常事件比如 `UIButton` 点击、`touchesBegin/Move/End/Cancel `事件都是在这个回调中完成的。
+
+<h4 id='8-4-3'>界面更新</h4>
+
+当在操作 UI 时，比如改变了 `Frame`、更新了 `UIView/CALayer` 的层次时，或者手动调用了 `UIView/CALayer 的 setNeedsLayout/setNeedsDisplay`方法后，这个 `UIView/CALayer` 就被标记为待处理，并被提交到一个全局的容器去。
+
+苹果注册了一个` Observer` 监听` BeforeWaiting`(即将进入休眠) 和` Exit `(即将退出Loop) 事件，回调去执行一个很长的函数：
+`_ZN2CA11Transaction17observer_callbackEP19__CFRunLoopObservermPv()`。这个函数里会遍历所有待处理的` UIView/CAlayer` 以执行实际的绘制和调整，并更新 `UI` 界面。
+
+<h4 id='8-4-4'>定时器</h4>
+
+`NSTimer` 其实就是 `CFRunLoopTimerRef`，他们之间是 `toll-free bridged` 的。一个 `NSTimer` 注册到 `RunLoop` 后，`RunLoop` 会为其重复的时间点注册好事件。例如 10:00, 10:10, 10:20 这几个时间点。`RunLoop`为了节省资源，并不会在非常准确的时间点回调这个`Timer`。`Timer` 有个属性叫做 `Tolerance` (宽容度)，标示了当时间点到后，容许有多少最大误差。
+
+如果某个时间点被错过了，例如执行了一个很长的任务，则那个时间点的回调也会跳过去，不会延后执行。就比如等公交，如果 10:10 时我忙着玩手机错过了那个点的公交，那我只能等 10:20 这一趟了。
+
+`CADisplayLink` 是一个和屏幕刷新率一致的定时器（但实际实现原理更复杂，和 `NSTimer` 并不一样，其内部实际是操作了一个 `Source`）。如果在两次屏幕刷新之间执行了一个长任务，那其中就会有一帧被跳过去（和 `NSTimer` 相似），造成界面卡顿的感觉。在快速滑动`TableView`时，即使一帧的卡顿也会让用户有所察觉。
+
+<h4 id='8-4-5'> PerformSelecter</h4>
+
+当调用` NSObject` 的 `performSelecter:afterDelay: `后，实际上其内部会创建一个 `Timer` 并添加到当前线程的 `RunLoop` 中。所以如果当前线程没有 `RunLoop`，则这个方法会失效。
+
+当调用 `performSelector:onThread:` 时，实际上其会创建一个 `Timer` 加到对应的线程去，同样的，如果对应线程没有 `RunLoop` 该方法也会失效。
+
+<h4 id='8-4-6'> GCD </h4>
+
+`GCD` 提供的某些接口也用到了 `RunLoop`， 例如 `dispatch_async()`。
+
+当调用 `dispatch_async(dispatch_get_main_queue(), block)` 时，`libDispatch` 会向主线程的 `RunLoop` 发送消息，`RunLoop`会被唤醒，并从消息中取得这个 `block`，并在回调 `__CFRUNLOOP_IS_SERVICING_THE_MAIN_DISPATCH_QUEUE__()` 里执行这个 `block`。但这个逻辑仅限于 `dispatch` 到主线程，`dispatch` 到其他线程仍然是由` libDispatch` 处理的。
+
+<h4 id='8-4-7'> AFN 保活 </h4>
+
+`AFURLConnectionOperation` 这个类是基于 `NSURLConnection` 构建的，其希望能在后台线程接收 `Delegate `回调。为此 `AFNetworking` 单独创建了一个线程，并在这个线程中启动了一个` RunLoop`：
+
+```objc
++ (void)networkRequestThreadEntryPoint:(id)__unused object {
+    @autoreleasepool {
+        [[NSThread currentThread] setName:@"AFNetworking"];
+        NSRunLoop *runLoop = [NSRunLoop currentRunLoop];
+        [runLoop addPort:[NSMachPort port] forMode:NSDefaultRunLoopMode];
+        [runLoop run];
+    }
+}
+ 
++ (NSThread *)networkRequestThread {
+    static NSThread *_networkRequestThread = nil;
+    static dispatch_once_t oncePredicate;
+    dispatch_once(&oncePredicate, ^{
+        _networkRequestThread = [[NSThread alloc] initWithTarget:self selector:@selector(networkRequestThreadEntryPoint:) object:nil];
+        [_networkRequestThread start];
+    });
+    return _networkRequestThread;
+}
+```
+
+<h4 id='8-4-8'> AsyncDisplayKit </h4>
+
+`AsyncDisplayKit` 是 `Facebook`推出的用于保持界面流畅性的框架，其原理大致如下：
+
+`UI` 线程中一旦出现繁重的任务就会导致界面卡顿，这类任务通常分为3类：排版，绘制，UI对象操作。
+
+1. 排版通常包括计算视图大小、计算文本高度、重新计算子式图的排版等操作。
+2. 绘制一般有文本绘制 (例如 `CoreText`)、图片绘制 (例如预先解压)、元素绘制 (`Quartz`)等操作。
+3. UI对象操作通常包括 `UIView/CALayer` 等` UI` 对象的创建、设置属性和销毁。
+
+其中前两类操作可以通过各种方法扔到后台线程执行，而最后一类操作只能在主线程完成，并且有时后面的操作需要依赖前面操作的结果 （例如`TextView`创建时可能需要提前计算出文本的大小）。`ASDK` 所做的，就是尽量将能放入后台的任务放入后台，不能的则尽量推迟 (例如视图的创建、属性的调整)。
+
+为此，`ASDK` 创建了一个名为` ASDisplayNode `的对象，并在内部封装了 `UIView/CALayer`，它具有和` UIView/CALayer` 相似的属性，例如 `frame`、`backgroundColor`等。所有这些属性都可以在后台线程更改，开发者可以只通过` Node `来操作其内部的 `UIView/CALayer`，这样就可以将排版和绘制放入了后台线程。但是无论怎么操作，这些属性总需要在某个时刻同步到主线程的` UIView/CALayer `去。
+
+`ASDK `仿照` QuartzCore/UIKit` 框架的模式，实现了一套类似的界面更新的机制：即在主线程的` RunLoop `中添加一个` Observer`，监听了 `kCFRunLoopBeforeWaiting `和 `kCFRunLoopExit `事件，在收到回调时，遍历所有之前放入队列的待处理的任务，然后一一执行。
 
 <h2 id='9'> ARC </h2>
 
