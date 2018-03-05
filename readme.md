@@ -15,10 +15,19 @@
 
 <a href='#5'>五. iOS App 启动过程 </a>
 
+
 <a href='#6'>六. Block原理</a>
 
    - <a href='#6-1'> Block 基本原理</a>
    - <a href='#6-1'> __block 关键字捕获原理 </a>
+
+<a href='#7'>七. GCD</a>
+
+<a href='#8'>八. Runloop </a>
+
+   - <a href='#8-1'> Runloop基本原理 </a>
+   - 
+
 
 <a href='#9'>九. ARC </a>
 
@@ -466,10 +475,81 @@ int main() {
 <h3 id='6-3'> block 引起的循环引用原理 </h3>
 
 
-<!--<h2 id='7'> GCD </h2>
+<!--<h2 id='7'> GCD </h2>-->
 
 <h2 id='8'> RunLoop </h2>
--->
+
+<h3 id='8-1'> Runloop 基本原理 </h3>
+
+一般来讲，一个线程一次只能执行一个任务，执行完成后线程就会退出。如果我们需要一个机制，让线程能随时处理事件但并不退出，通常的代码逻辑是这样的：
+
+```c++
+function loop() {
+    initialize();
+    do {
+        var message = get_next_message();
+        process_message(message);
+    } while (message != quit);
+}
+```
+在`iOS`中，`Runloop`与线程是一一对应的关系，这种关系存在一张全局字典里：
+
+```c++
+/// 全局的Dictionary，key 是 pthread_t， value 是 CFRunLoopRef
+static CFMutableDictionaryRef loopsDic;
+/// 访问 loopsDic 时的锁
+static CFSpinLock_t loopsLock;
+ 
+/// 获取一个 pthread 对应的 RunLoop。
+CFRunLoopRef _CFRunLoopGet(pthread_t thread) {
+    OSSpinLockLock(&loopsLock);
+    
+    if (!loopsDic) {
+        // 第一次进入时，初始化全局Dic，并先为主线程创建一个 RunLoop。
+        loopsDic = CFDictionaryCreateMutable();
+        CFRunLoopRef mainLoop = _CFRunLoopCreate();
+        CFDictionarySetValue(loopsDic, pthread_main_thread_np(), mainLoop);
+    }
+    
+    /// 直接从 Dictionary 里获取。
+    CFRunLoopRef loop = CFDictionaryGetValue(loopsDic, thread));
+    
+    if (!loop) {
+        /// 取不到时，创建一个
+        loop = _CFRunLoopCreate();
+        CFDictionarySetValue(loopsDic, thread, loop);
+        /// 注册一个回调，当线程销毁时，顺便也销毁其对应的 RunLoop。
+        _CFSetTSD(..., thread, loop, __CFFinalizeRunLoop);
+    }
+    
+    OSSpinLockUnLock(&loopsLock);
+    return loop;
+}
+ 
+CFRunLoopRef CFRunLoopGetMain() {
+    return _CFRunLoopGet(pthread_main_thread_np());
+}
+ 
+CFRunLoopRef CFRunLoopGetCurrent() {
+    return _CFRunLoopGet(pthread_self());
+}
+```
+苹果是不允许直接创建`Runloop`的，只能通过:
+
+```c++
+CFRunLoopRef CFRunLoopGetMain() {
+    return _CFRunLoopGet(pthread_main_thread_np());
+}
+ 
+CFRunLoopRef CFRunLoopGetCurrent() {
+    return _CFRunLoopGet(pthread_self());
+}
+```
+
+这两个函数来获得当前或者某个线程的`Runloop`。根据上面的源码可以得出结论：
+> `Runloop`创建是发生在第一次获取之前，若从未获取，则永远不会创建。
+
+
 <h2 id='9'> ARC </h2>
 
 <h3 id='9-1'> ARC 基本原理 </h3>
@@ -627,9 +707,7 @@ refers：[深入理解Objective C的ARC机制](http://www.cocoachina.com/ios/201
 
 - 属性关键字
 - `categoty` Extension
-- Autorelease Pool
 - @synthesize和@dynamic
-- weak置为nil
 - 属性
 - 多态
 - @dynamic关键字
