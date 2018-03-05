@@ -81,6 +81,8 @@
 		
 <h2 id='2'> Runtime </h2>
 
+reference:[objc runtime](http://yulingtianxia.com/blog/2014/11/05/objective-c-runtime/)
+
 1. 消息接收
 	- 编译时间确定接受到的消息，运行时间通过`@selector`找到对应的方法。
 	- 消息接受者如果能直接找到`@selector`则直接执行方法，否则转发消息。若最终找不到，则运行时崩溃。
@@ -136,7 +138,7 @@
 		
 <h2 id='3'> Categoty </h2>
 
-推荐阅读：[美团技术博客：深入理解Objective-C：Category
+reference：[美团技术博客：深入理解Objective-C：Category
 ](https://tech.meituan.com/DiveIntoCategory.html)
 
 <h3 id = '3-1'> categoty 简介</h3>
@@ -476,6 +478,8 @@ int main() {
 
 <h2 id='8'> RunLoop </h2>
 
+reference:[深入理解Runloop](https://blog.ibireme.com/2015/05/18/runloop/)
+
 <h3 id='8-1'> Runloop 基本原理 </h3>
 
 一般来讲，一个线程一次只能执行一个任务，执行完成后线程就会退出。如果我们需要一个机制，让线程能随时处理事件但并不退出，通常的代码逻辑是这样的：
@@ -813,6 +817,10 @@ App启动后，苹果在主线程 `RunLoop` 里注册了两个 `Observer`，其�
 
 <h2 id='9'> ARC </h2>
 
+
+reference：[深入理解Objective C的ARC机制](http://www.cocoachina.com/ios/20170427/19109.html)、[Objective-C 引用计数原理](http://yulingtianxia.com/blog/2015/12/06/The-Principle-of-Refenrence-Counting/)、[黑幕背后的Autorelease
+](http://blog.sunnyxx.com/2014/10/15/behind-autorelease/)
+
 <h3 id='9-1'> ARC 基本原理 </h3>
 
 使用ARC，开发者不再需要手动的`retain/release/autorelease`. 编译器会自动插入对应的代码，再结合`Objective-C`的`runtime`，实现自动引用计数。
@@ -962,19 +970,14 @@ struct weak_table_t {
 - 从最新加入的对象一直向前清理，可以向前跨越若干个`page`，直到哨兵所在的`page`
 
 
-refers：[深入理解Objective C的ARC机制](http://www.cocoachina.com/ios/20170427/19109.html)、[Objective-C 引用计数原理](http://yulingtianxia.com/blog/2015/12/06/The-Principle-of-Refenrence-Counting/)、[黑幕背后的Autorelease
-](http://blog.sunnyxx.com/2014/10/15/behind-autorelease/)
 
 
 - 属性关键字
-- `categoty` Extension
 - @synthesize和@dynamic
 - 属性
 - 多态
 - @dynamic关键字
 - YYModel基本原理
-- AFN保活
-- timer
 - 锁	1
 
 ## 项目
