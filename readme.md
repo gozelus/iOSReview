@@ -997,22 +997,154 @@ struct weak_table_t {
 
 `Weex SDK`结构主要有三部分组成:
 
-![weex sdk](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/2025169885-597d7aa3b6cd8_articlex.png?raw=true)
+![weex sdk](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/b5d46568299cbf0af0f169cb5307c3fa.png?raw=true)
 
 1. 顶层`framework`
 	- 此层的作用是编译目标文件至js，比如如果使用的`.vue`文件，就将此文件通过`framework`编译成对应的`jsBundle`。此层其实是`weex`集成了`vuejs`或者`react`。
 	
-2. 中间层`weex runtime`
+2. 中间层`js runtime`
 	- 此层的作用是承接上层的`jsbundle`文件，在`iOS`上，`weex sdk`通过使用系统`JSCore`来跑`jsbundle`文件。通过理解js文件，开始执行各种指令。比如在`vuejs`中的`creatElement`指令，会被转换为`creatNative`指令发送给下一层。通过这种方式，隔离了前端开发者与客端户开发工作，使得前端开发者也可以通过常用的js语法生成`native`组件，调用原生的各种方法。
 
 3. 底层`Render Engine`
 	- 此层承接`weex runtime`传来的各种指令，开始执行`weex sdk`中"预置"的`native`代码。
 
-<h3 id='#12-2'> Weex 消息传递机制 </h3>
+<h3 id='#12-2'> Weex JS Framework 详解 </h3>
+
+`Weex JS Framework`主要分为以下几个功能：
+
+1. 适配前端层
+2. 构建渲染指令树
+3. JS-Native 通信
+4. JS Service
+5. 准备环境接口
+
+<h4 id='#12-2-1'> 适配前端层 </h4>
+
+前端框架在 `Weex` 和浏览器中的执行过程不一样，这个应该不难理解。如何让一个前端框架运行在 `Weex` 平台上，是 `JS Framework` 的一个关键功能。
+
+以 `Vue.js` 为例，在浏览器上运行一个页面大概分这么几个步骤：首先要准备好页面容器，可以是浏览器或者是`WebView`，容器里提供了标准的 `Web API`。然后给页面容器传入一个地址，通过这个地址最终获取到一个 `HTML` 文件，然后解析这个 `HTML `文件，加载并执行其中的脚本。想要正确的渲染，应该首先加载执行 `Vue.js `框架的代码，向浏览器环境中添加 `Vue `这个变量，然后创建好挂载点的` DOM `元素，最后执行页面代码，从入口组件开始，层层渲染好再挂载到配置的挂载点上去。
+
+在 `Weex` 里的执行过程也比较类似，不过 `Weex `页面对应的是一个 `js` 文件，不是 `HTML `文件，而且不需要自行引入 `Vue.js` 框架的代码，也不需要设置挂载点。过程大概是这样的：首先初始化好 `Weex` 容器，这个过程中会初始化 `JS Framework`，`Vue.js` 的代码也包含在了其中。然后给 `Weex` 容器传入页面地址，通过这个地址最终获取到一个 `js` 文件，客户端会调用 `createInstance` 来创建页面。
+
+<h4 id='#12-2-2'> 构建渲染指令树 </h4>
+
+不同的前端框架里 `Virtual DOM` 的结构、`patch` 的方式都是不同的，这也反应了它们开发理念和优化策略的不同，但是最终，在浏览器上它们都使用一致的 `DOM API` 把 `Virtual DOM` 转换成真实的 `HTMLElement`。在 `Weex` 里的逻辑也是类似的，只是在最后一步生成真实元素的过程中，不使用原生` DOM API`，而是使用 `JS Framework` 里定义的一套 `Weex DOM API` 将操作转化成渲染指令发给客户端。
+![渲染指令树](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/073119d9464946ca30a33bc2104c2d57.png?raw=true)
+
+`JS Framework `提供的 `Weex DOM API` 和浏览器提供的 `DOM API` 功能基本一致，在 `Vue` 和 `Rax` 内部对这些接口都做了适配，针对` Weex `和浏览器平台调用不同的接口就可以实现跨平台渲染。
+
+<h4 id='#12-2-3'> JS-Native 通信原理 </h4>
+
+![通信](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/7242a9bf41793fa2d1cd6794ce0bd521.png?raw=true)
+首先，页面的 `js` 代码是运行在 `js` 线程上的，然而原生组件的绘制、事件的捕获都发生在 `UI` 线程。在这两个线程之间的通信用的是 `callNative` 和 `callJS` 这两个底层接口（现在已经扩展到了很多个），它们默认都是异步的，在 `JS Framework` 和原生渲染器内部都基于这两个方法做了各种封装。
+
+`callNative` 是由客户端向 `JS` 执行环境中注入的接口，提供给 `JS Framework` 调用，界面的节点（上文提到的渲染指令树）、模块调用的方法和参数都是通过这个接口发送给客户端的。为了减少调用接口时的开销，其实现在已经开了更多更直接的通信接口，其中有些接口还支持同步调用（支持返回值），它们在原理上都和 `callNative` 是一样的。
+
+`callJS` 是由 `JS Framework` 实现的，并且也注入到了执行环境中，提供给客户端调用。事件的派发、模块的回调函数都是通过这个接口通知到 `JS Framework`，然后再将其传递给上层前端框架。
+
+<h4 id='#12-2-4'> JS Service </h4>
+
+`Weex` 是一个多页面的框架，每个页面的 `js bundle` 都在一个独立的环境里运行，不同的 `Weex` 页面对应到浏览器上就相当于不同的“标签页”，普通的` js` 库没办法实现在多个页面之间实现状态共享，也很难实现跨页通信。
+
+在 `JS Framework` 中实现了 `JS Service` 的功能，主要就是用来解决跨页面复用和状态共享的问题的，例如 BroadcastChannel 就是基于 `JS Service` 实现的，它可以在多个 `Weex` 页面之间通信。
+
+<h3 id='#12-3'> Weex 渲染过程及事件响应</h3>
+
+<h4 id='#12-3-1'> Weex 的页面渲染</h4>
+
+![执行过程](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/6d05fc9b7fb18b30658ddca4da22fcbe.png?raw=true)
+
+先描述渲染前的流程：`Weex`会先拉取一个`JSBundle`，这个`JSBundle`就是之前提到的`VueJS`编译后的`js`打包文件。再收到`JSBunlde`后，`Weex SDK`会通过`native`代码创建`intance`，之后再将一些配置及环境变量、`JSBundle`一起传给`JS Framework`，其目的是通过`JS Framwork`生成之前提到过的**渲染指令树**。
+
+在此之后就可以开始正式的渲染页面流程:
+
+![页面渲染](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/c24f96ad2e579a3f9edb3514fa0bfbb7.png?raw=true)
+
+<h4 id='#12-3-1'> Weex 的事件响应</h4>
+
+![事件响应](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/5345f7bccad0b1c2c9d2ef824628d789.png?raw=true)
+
+如上图所示，如果在 `Vue.js` 里某个标签上绑定了事件，会在内部执行 `addEventListener` 给节点绑定事件，这个接口在 `Weex` 平台下调用的是` JS Framework` 提供的 `addEvent` 方法向元素上添加事件，传递了事件类型和处理函数。`JS Framework` 不会立即向客户端发送添加事件的指令，而是把事件类型和处理函数记录下来，节点构建好以后再一起发给客户端，发送的节点中只包含了事件类型，不含事件处理函数。客户端在渲染节点时，如果发现节点上包含事件，就监听原生 UI 上的指定事件。
+
+当原生 UI 监听到用户触发的事件以后，会派发 `fireEvent` 命令把节点的 `ref`、事件类型以及事件对象发给 `JS Framework`。`JS Framework` 根据 `ref` 和事件类型找到相应的事件处理函数，并且以事件对象` event` 为参数执行事件处理函数。目前 `Weex `里的事件模型相对比较简单，并不区分捕获阶段和冒泡阶段，而是只派发给触发了事件的节点，并不向上冒泡，类似 `DOM `模型里` level 0` 级别的事件。
+
+<h3 id='#12-4'> Weex 中的 iOS: JavaScriptCore </h3>
+
+此节简单介绍下`Weex`中的`JavaScriptCore`。
+
+<h4>OC、JS互相调用</h4>
+
+```js
+ var addElement = function(){
+    return 'addElement';
+ }
+```
+比如上述js文件
+
+```objc
+//1.加载上面js文件到JSContext
+JSContext *context = [[JSContext alloc]init];
+[context evaluateScript:jsFilePath];
+
+// 2.调用addElement方法
+JSValue *jsFunction = context[@"addElement"];
+JSValue *addElement = [jsFunction callWithArguments:nil];
+```
+把`js`文件加载进`objc`的`JSContext`后，就可以调用`js`文件里定义的方法了，这个就是`objc`调用`js`的原理。
 
 
-<!--- 属性关键字
-- 多态
+```objc
+//注册native方法给js调用
+- (void)regiestNativeFunction {
+    //注册一个callCreateBody方法给js调用
+    self.jsContext[@"callCreateBody"] = ^(NSString *msg){
+        NSLog(@"js:msg:%@",msg);
+    };
+    //注册一个callAddEvent方法给js调用
+    self.jsContext[@"callAddEvent"] = ^(NSString *msg){
+        NSLog(@"js:msg:%@",msg);
+    };
+     //注册一个callAddElement方法给js调用
+   self.jsContext[@"callAddElement"] = ^(NSString *msg){
+        NSLog(@"js:msg:%@",msg);
+    };
+    //使用js调用objc
+    [self.jsContext evaluateScript:@"callAddEvent('hello,i am js side')"];
+}
+```
+
+<h4>weex封装的全局方法</h4>
+
+上面的代码`native`端注册了三个方法给`js`端调用，`weex`基于这种能力封装了一系列的方法，下面列出的就是`weex`提供的操作UI的一些的全局方法。
+```
+global.callCreateBody,
+global.callAddElement,
+global.callRemoveElement,
+global.callMoveElement,
+global.callUpdateAttrs,
+global.callUpdateStyle,
+global.callAddEvent,
+global.callRemoveEvent,
+global.callNative
+```
+
+<h4>通信数据格式</h4>
+weex有了JS-Native相互通信的能力后，再按照一定格式发送数据给native端就可以渲染UI了。这个格式要与native端协商好，目前weex接受的格式类似下面的json格式
+
+```js
+{ 
+	ref: "", //js端随机生成的数字id
+	type: "", //native端支持的component类型
+	          //比如text div list等
+	attr: {}, //component支持的属性
+	          //比如text的value
+	style: {} //元素的样式，native端基于Facebook的yoga     
+	          //框架的前身cssLayout来生成native UI
+
+}
+```
+
+<!--- 多态
 - 锁	-->
 <!--- weex原理
 - vue
