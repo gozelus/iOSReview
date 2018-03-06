@@ -47,6 +47,17 @@
 
 <a href='#12'>十二. Weex </a>
 
+   - <a href='#12-1'> Weex 基本结构 </a>
+   - <a href='#12-2'> Weex JS Framework 详解 </a>
+       - <a href='#12-2-1'>适配前端层</a>
+       - <a href='#12-2-2'>渲染指令树</a>
+       - <a href='#12-2-3'>JS-Native的通信</a>
+       - <a href='#12-2-4'>JS Serive</a>
+   - <a href='#12-3'> Weex 渲染及事件响应原理 </a>
+       - <a href='#12-3-1'> Weex 渲染原理
+       - <a href='#12-3-2'> Weex 事件响应原理
+   - <a href='#12-4'> iOS上的Weex </a>
+
 <a href='#13'>十三. VueJS </a>
 
 <a href='#10'> 十. TCP/IP </a>   
@@ -987,11 +998,11 @@ struct weak_table_t {
 - 在当前`page`中，将晚于哨兵对象插入的所有`autorelease`对象都发送一次`- release`消息，并向回移动`next`指针到正确位置
 - 从最新加入的对象一直向前清理，可以向前跨越若干个`page`，直到哨兵所在的`page`
 
-<h2 id='#12'> 十二. Weex </h2>
+<h2 id='12'> 十二. Weex </h2>
 
 **本节不讲解如何使用weex,只关注weex iOS部分原理。如有兴趣，可自行去官网学习基本知识**
 
-<h3 id='#12-1'> Weex 基本结构 </h3>
+<h3 id='12-1'> Weex 基本结构 </h3>
 
 `Weex`目前最新版本支持`Rax`与`VueJS`，其中`Rax`即为`React`语法，目的使前端开发者更易上手。
 
@@ -1008,7 +1019,7 @@ struct weak_table_t {
 3. 底层`Render Engine`
 	- 此层承接`weex runtime`传来的各种指令，开始执行`weex sdk`中"预置"的`native`代码。
 
-<h3 id='#12-2'> Weex JS Framework 详解 </h3>
+<h3 id='12-2'> Weex JS Framework 详解 </h3>
 
 `Weex JS Framework`主要分为以下几个功能：
 
@@ -1018,7 +1029,7 @@ struct weak_table_t {
 4. JS Service
 5. 准备环境接口
 
-<h4 id='#12-2-1'> 适配前端层 </h4>
+<h4 id='12-2-1'> 适配前端层 </h4>
 
 前端框架在 `Weex` 和浏览器中的执行过程不一样，这个应该不难理解。如何让一个前端框架运行在 `Weex` 平台上，是 `JS Framework` 的一个关键功能。
 
@@ -1026,14 +1037,14 @@ struct weak_table_t {
 
 在 `Weex` 里的执行过程也比较类似，不过 `Weex `页面对应的是一个 `js` 文件，不是 `HTML `文件，而且不需要自行引入 `Vue.js` 框架的代码，也不需要设置挂载点。过程大概是这样的：首先初始化好 `Weex` 容器，这个过程中会初始化 `JS Framework`，`Vue.js` 的代码也包含在了其中。然后给 `Weex` 容器传入页面地址，通过这个地址最终获取到一个 `js` 文件，客户端会调用 `createInstance` 来创建页面。
 
-<h4 id='#12-2-2'> 构建渲染指令树 </h4>
+<h4 id='12-2-2'> 构建渲染指令树 </h4>
 
 不同的前端框架里 `Virtual DOM` 的结构、`patch` 的方式都是不同的，这也反应了它们开发理念和优化策略的不同，但是最终，在浏览器上它们都使用一致的 `DOM API` 把 `Virtual DOM` 转换成真实的 `HTMLElement`。在 `Weex` 里的逻辑也是类似的，只是在最后一步生成真实元素的过程中，不使用原生` DOM API`，而是使用 `JS Framework` 里定义的一套 `Weex DOM API` 将操作转化成渲染指令发给客户端。
 ![渲染指令树](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/073119d9464946ca30a33bc2104c2d57.png?raw=true)
 
 `JS Framework `提供的 `Weex DOM API` 和浏览器提供的 `DOM API` 功能基本一致，在 `Vue` 和 `Rax` 内部对这些接口都做了适配，针对` Weex `和浏览器平台调用不同的接口就可以实现跨平台渲染。
 
-<h4 id='#12-2-3'> JS-Native 通信原理 </h4>
+<h4 id='12-2-3'> JS-Native 通信原理 </h4>
 
 ![通信](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/7242a9bf41793fa2d1cd6794ce0bd521.png?raw=true)
 首先，页面的 `js` 代码是运行在 `js` 线程上的，然而原生组件的绘制、事件的捕获都发生在 `UI` 线程。在这两个线程之间的通信用的是 `callNative` 和 `callJS` 这两个底层接口（现在已经扩展到了很多个），它们默认都是异步的，在 `JS Framework` 和原生渲染器内部都基于这两个方法做了各种封装。
@@ -1042,15 +1053,15 @@ struct weak_table_t {
 
 `callJS` 是由 `JS Framework` 实现的，并且也注入到了执行环境中，提供给客户端调用。事件的派发、模块的回调函数都是通过这个接口通知到 `JS Framework`，然后再将其传递给上层前端框架。
 
-<h4 id='#12-2-4'> JS Service </h4>
+<h4 id='12-2-4'> JS Service </h4>
 
 `Weex` 是一个多页面的框架，每个页面的 `js bundle` 都在一个独立的环境里运行，不同的 `Weex` 页面对应到浏览器上就相当于不同的“标签页”，普通的` js` 库没办法实现在多个页面之间实现状态共享，也很难实现跨页通信。
 
 在 `JS Framework` 中实现了 `JS Service` 的功能，主要就是用来解决跨页面复用和状态共享的问题的，例如 BroadcastChannel 就是基于 `JS Service` 实现的，它可以在多个 `Weex` 页面之间通信。
 
-<h3 id='#12-3'> Weex 渲染过程及事件响应</h3>
+<h3 id='12-3'> Weex 渲染过程及事件响应</h3>
 
-<h4 id='#12-3-1'> Weex 的页面渲染</h4>
+<h4 id='12-3-1'> Weex 的页面渲染</h4>
 
 ![执行过程](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/6d05fc9b7fb18b30658ddca4da22fcbe.png?raw=true)
 
@@ -1060,7 +1071,7 @@ struct weak_table_t {
 
 ![页面渲染](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/c24f96ad2e579a3f9edb3514fa0bfbb7.png?raw=true)
 
-<h4 id='#12-3-1'> Weex 的事件响应</h4>
+<h4 id='12-3-2'> Weex 的事件响应</h4>
 
 ![事件响应](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/5345f7bccad0b1c2c9d2ef824628d789.png?raw=true)
 
@@ -1068,7 +1079,7 @@ struct weak_table_t {
 
 当原生 UI 监听到用户触发的事件以后，会派发 `fireEvent` 命令把节点的 `ref`、事件类型以及事件对象发给 `JS Framework`。`JS Framework` 根据 `ref` 和事件类型找到相应的事件处理函数，并且以事件对象` event` 为参数执行事件处理函数。目前 `Weex `里的事件模型相对比较简单，并不区分捕获阶段和冒泡阶段，而是只派发给触发了事件的节点，并不向上冒泡，类似 `DOM `模型里` level 0` 级别的事件。
 
-<h3 id='#12-4'> Weex 中的 iOS: JavaScriptCore </h3>
+<h3 id='12-4'> Weex 中的 iOS: JavaScriptCore </h3>
 
 此节简单介绍下`Weex`中的`JavaScriptCore`。
 
