@@ -43,7 +43,9 @@
    
 <a href='#10'>十. Tableview 优化 </a>
 
-<a href='#11'>十一. YYModel </a>
+<a href='#11'>十一. 开源库 </a>
+
+   - <a href='#11-3'> ASDK 简介 </a>
 
 <a href='#12'>十二. Weex </a>
 
@@ -58,7 +60,7 @@
        - <a href='#12-3-2'> Weex 事件响应原理
    - <a href='#12-4'> iOS上的Weex </a>
 
-<a href='#13'>十三. VueJS </a>
+<a href='#13'>十三. Tableview 优化 </a>
 
 <a href='#10'> 十. TCP/IP </a>   
 
@@ -997,6 +999,46 @@ struct weak_table_t {
 - 根据传入的哨兵对象地址找到哨兵对象所处的`page`
 - 在当前`page`中，将晚于哨兵对象插入的所有`autorelease`对象都发送一次`- release`消息，并向回移动`next`指针到正确位置
 - 从最新加入的对象一直向前清理，可以向前跨越若干个`page`，直到哨兵所在的`page`
+
+<h2 id='11'> 十一. 开源库 </h2>
+
+<h3 id='11-1'> SDWebImg </h3>
+
+引用自[sdwebimg源码解析](http://blog.csdn.net/deft_mkjing/article/details/52900586)
+
+<h4 id='11-1-1'> 简介 </h4>
+<h4 id='11-1-2'> 基本原理 </h4>
+
+<h3 id='11-2'> YYKit </h3>
+
+<h3 id='11-3'> ASDK </h3>
+
+在<a href='#8-4-7'>runloop章节</a>有所简介。
+
+<h4 id='11-3-1'> asdk 基本原理 </h4>
+
+![asdk设计](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/asdk_design.png?raw=true)
+`ASDK` 认为，阻塞主线程的任务，主要分为上面这三大类。文本和布局的计算、渲染、解码、绘制都可以通过各种方式异步执行，但` UIKit `和` Core Animation` 相关操作必需在主线程进行。`ASDK` 的目标，就是尽量把这些任务从主线程挪走，而挪不走的，就尽量优化性能。
+
+`ASDK` 为此创建了 `ASDisplayNode` 类，包装了常见的视图属性（比如 `frame/bounds/alpha/transform/backgroundColor/superNode/subNodes` 等），然后它用 `UIView->CALayer` 相同的方式，实现了` ASNode->UIView` 这样一个关系:
+![Asdk node](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/asdk_view_backed_node.png?raw=true)
+
+当不需要响应触摸事件时，`ASDisplayNode `可以被设置为 `layer backed`，即 `ASDisplayNode` 充当了原来` UIView `的功能，节省了更多资源:
+![不需要事件触摸的情况下](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/asdk_layer_backed_node.png?raw=true)
+
+与 `UIView` 和 `CALayer` 不同，`ASDisplayNode `是线程安全的，它可以在后台线程创建和修改。`Node `刚创建时，并不会在内部新建` UIView` 和 `CALayer`，直到第一次在主线程访问 `view` 或` layer` 属性时，它才会在内部生成对应的对象。当它的属性（比如`frame/transform`）改变后，它并不会立刻同步到其持有的 `view` 或 `laye`r 去，而是把被改变的属性保存到内部的一个中间变量，稍后在需要时，再通过某个机制一次性设置到内部的 `view` 或 `layer`。
+
+通过模拟和封装 `UIView/CALayer`，开发者可以把代码中的` UIView `替换为` ASNode`，很大的降低了开发和学习成本，同时能获得 `ASDK` 底层大量的性能优化。为了方便使用， `ASDK` 把大量常用控件都封装成了 `ASNode` 的子类，比如 `Button、Control、Cell、Image、ImageView、Text、TableView、CollectionView` 等。利用这些控件，开发者可以尽量避免直接使用 `UIKit `相关控件，以获得更完整的性能提升。
+
+<h4 id='11-3-2'> asdk 中 runloop的应用 </h4>
+
+`iOS `的显示系统是由 `VSync` 信号驱动的，`VSync` 信号由硬件时钟生成，每秒钟发出` 60` 次（这个值取决设备硬件，比如` iPhone` 真机上通常是 `59.97`）。`iOS` 图形服务接收到 `VSync` 信号后，会通过 `IPC` 通知到 `App `内。`App` 的 `Runloop` 在启动后会注册对应的` CFRunLoopSource `通过 `mach_port` 接收传过来的时钟信号通知，随后` Source` 的回调会驱动整个` App `的动画与显示。
+
+`Core Animation` 在 `RunLoop `中注册了一个 `Observer`，监听了` BeforeWaiting` 和 `Exit` 事件。这个` Observer` 的优先级是` 2000000`，低于常见的其他` Observer`。当一个触摸事件到来时，`RunLoop `被唤醒，`App `中的代码会执行一些操作，比如创建和调整视图层级、设置` UIView `的` frame`、修改 `CALayer` 的透明度、为视图添加一个动画；这些操作最终都会被` CALayer` 捕获，并通过 `CATransaction` 提交到一个中间状态去（`CATransaction` 的文档略有提到这些内容，但并不完整）。当上面所有操作结束后，`RunLoop` 即将进入休眠（或者退出）时，关注该事件的 `Observer `都会得到通知。这时 `CA` 注册的那个 `Observer` 就会在回调中，把所有的中间状态合并提交到 `GPU `去显示；如果此处有动画，`CA` 会通过 `DisplayLink` 等机制多次触发相关流程。
+
+`ASDK` 在此处模拟了 `Core Animation `的这个机制：所有针对 `ASNode` 的修改和提交，总有些任务是必需放入主线程执行的。当出现这种任务时，`ASNode` 会把任务用 `ASAsyncTransaction(Group) `封装并提交到一个全局的容器去。`ASDK `也在 `RunLoop` 中注册了一个 `Observer`，监视的事件和 `CA` 一样，但优先级比` CA `要低。当 `RunLoop `进入休眠前、`CA` 处理完事件后，`ASDK` 就会执行该 `loop `内提交的所有任务。具体代码见这个文件：[ASAsyncTransactionGroup](https://github.com/facebook/AsyncDisplayKit/blob/master/AsyncDisplayKit%2FDetails%2FTransactions%2F_ASAsyncTransactionGroup.m)。
+
+通过这种机制，`ASDK` 可以在合适的机会把异步、并发的操作同步到主线程去，并且能获得不错的性能。
 
 <h2 id='12'> 十二. Weex </h2>
 
