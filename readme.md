@@ -1000,6 +1000,36 @@ struct weak_table_t {
 - 在当前`page`中，将晚于哨兵对象插入的所有`autorelease`对象都发送一次`- release`消息，并向回移动`next`指针到正确位置
 - 从最新加入的对象一直向前清理，可以向前跨越若干个`page`，直到哨兵所在的`page`
 
+
+<h2 id='10'> Tableview 优化 </h2>
+
+引用自[保持界面流畅的技巧](https://blog.ibireme.com/2015/11/12/smooth_user_interfaces_for_ios/)，[YYAsyncLayer源码分析](http://ios.jobbole.com/86878/)
+
+<h3 id='10-1'> 预排版 </h3>
+
+当获取到 `API JSON` 数据后，把每条 `Cell` 需要的数据都在后台线程计算并封装为一个布局对象` CellLayout`。`CellLayout `包含所有文本的 `CoreText` 排版结果、`Cell` 内部每个控件的高度、`Cell` 的整体高度。每个 `CellLayout `的内存占用并不多，所以当生成后，可以全部缓存到内存，以供稍后使用。这样，`TableView `在请求各个高度函数时，不会消耗任何多余计算量；当把 `CellLayout` 设置到` Cell` 内部时，`Cell` 内部也不用再计算布局了。
+
+<h3 id='10-2'> 避免离屏渲染 </h3>
+
+<h3 id='10-3'> 异步绘制 </h3>
+
+图像的绘制通常是指用那些以 `CG `开头的方法把图像绘制到画布中，然后从画布创建图片并显示这样一个过程。这个最常见的地方就是 `[UIView drawRect:] `里面了。由于` CoreGraphic `方法通常都是线程安全的，所以图像的绘制可以很容易的放到后台线程进行。一个简单异步绘制的过程大致如下（实际情况会比这个复杂得多，但原理基本一致):
+
+```objc
+- (void)display {
+    dispatch_async(backgroundQueue, ^{
+        CGContextRef ctx = CGBitmapContextCreate(...);
+        // draw in context...
+        CGImageRef img = CGBitmapContextCreateImage(ctx);
+        CFRelease(ctx);
+        dispatch_async(mainQueue, ^{
+            layer.contents = img;
+        });
+    });
+}
+```
+
+
 <h2 id='11'> 十一. 开源库 </h2>
 
 <h3 id='11-1'> SDWebImg </h3>
@@ -1214,3 +1244,4 @@ weex有了JS-Native相互通信的能力后，再按照一定格式发送数据�
 
 - tcp/ip-->
 	
+
