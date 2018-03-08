@@ -1276,7 +1276,7 @@ weex有了JS-Native相互通信的能力后，再按照一定格式发送数据�
 
 此处在<a href='#8-4'>Runloop应用中均有提及</a>。
 
-![渲染流程](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/iOS%E6%B8%B2%E6%9F%93%E6%B5%81%E7%A8%8B.png?raw=true)
+![iOS中的渲染框架结构](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/iOS%E6%B8%B2%E6%9F%93%E6%B5%81%E7%A8%8B.png?raw=true)
 
 通常来说，计算机系统中 `CPU`、`GPU`、显示器是以上面这种方式协同工作的。`CPU` 计算好显示内容提交到 `GPU`，`GPU` 渲染完成后将渲染结果放入帧缓冲区，随后视频控制器会按照 `VSync` 信号如下图所示，逐行读取帧缓冲区的数据，经过可能的数模转换传递给显示器显示。
 
