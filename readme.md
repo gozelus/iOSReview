@@ -1064,7 +1064,7 @@ struct weak_table_t {
 
 `iOS `的显示系统是由 `VSync` 信号驱动的，`VSync` 信号由硬件时钟生成，每秒钟发出` 60` 次（这个值取决设备硬件，比如` iPhone` 真机上通常是 `59.97`）。`iOS` 图形服务接收到 `VSync` 信号后，会通过 `IPC` 通知到 `App `内。`App` 的 `Runloop` 在启动后会注册对应的` CFRunLoopSource `通过 `mach_port` 接收传过来的时钟信号通知，随后` Source` 的回调会驱动整个` App `的动画与显示。
 
-`Core Animation` 在 `RunLoop `中注册了一个 `Observer`，监听了` BeforeWaiting` 和 `Exit` 事件。这个` Observer` 的优先级是` 2000000`，低于常见的其他` Observer`。当一个触摸事件到来时，`RunLoop `被唤醒，`App `中的代码会执行一些操作，比如创建和调整视图层级、设置` UIView `的` frame`、修改 `CALayer` 的透明度、为视图添加一个动画；这些操作最终都会被` CALayer` 捕获，并通过 `CATransaction` 提交到一个中间状态去（`CATransaction` 的文档略有提到这些内容，但并不完整）。当上面所有操作结束后，`RunLoop` 即将进入休眠（或者退出）时，关注该事件的 `Observer `都会得到通知。这时 `CA` 注册的那个 `Observer` 就会在回调中，把所有的中间状态合并提交到 `GPU `去显示；如果此处有动画，`CA` 会通过 `DisplayLink` 等机制多次触发相关流程。
+`Core Animation` 在 `RunLoop `中注册了一个 `Observer`，监听了` BeforeWaiting` 和 `Exit` 事件。这个` Observer` 的优先级是` 2000000`，低于常见的其他` Observer`。当一个触摸事件到来时，`RunLoop `被唤醒，`App `中的代码会执行一些操作，比如创建和调整视图层级、设置` UIView `的` frame`、修改 `CALayer` 的透明度、为视图添加一个动画；这些操作最终都会被` CALayer` 捕获，并通过 `CATransaction` 提交到一个中间状态去（`CATransaction` 的文档略有提到这些内容，但并不完整）。当上面所有操作结束后，`RunLoop` 即将进入休眠（或者退出）时，关注该事件的 `Observer `都会得到通知。这时 `CA` 注册的那个 `Observer` 就会在回调中，把所有的中间状态合并提交到 ``GPU` `去显示；如果此处有动画，`CA` 会通过 `DisplayLink` 等机制多次触发相关流程。
 
 `ASDK` 在此处模拟了 `Core Animation `的这个机制：所有针对 `ASNode` 的修改和提交，总有些任务是必需放入主线程执行的。当出现这种任务时，`ASNode` 会把任务用 `ASAsyncTransaction(Group) `封装并提交到一个全局的容器去。`ASDK `也在 `RunLoop` 中注册了一个 `Observer`，监视的事件和 `CA` 一样，但优先级比` CA `要低。当 `RunLoop `进入休眠前、`CA` 处理完事件后，`ASDK` 就会执行该 `loop `内提交的所有任务。具体代码见这个文件：[ASAsyncTransactionGroup](https://github.com/facebook/AsyncDisplayKit/blob/master/AsyncDisplayKit%2FDetails%2FTransactions%2F_ASAsyncTransactionGroup.m)。
 
@@ -1212,6 +1212,7 @@ global.callNative
 ```
 
 <h4>通信数据格式</h4>
+
 weex有了JS-Native相互通信的能力后，再按照一定格式发送数据给native端就可以渲染UI了。这个格式要与native端协商好，目前weex接受的格式类似下面的json格式
 
 ```js
@@ -1226,6 +1227,129 @@ weex有了JS-Native相互通信的能力后，再按照一定格式发送数据�
 
 }
 ```
+
+<h3 id='13'>iOS中的渲染与绘制</h3>
+
+本章尝试讲解`iOS`中渲染与绘制的部分，是第十章<a href='#12'>Tableview优化</a>的基础内容。
+
+
+引用自:
+
+   - [Core Animation](https://github.com/AttackOnDobby/iOS-Core-Animation-Advanced-Techniques/blob/master/13-%E9%AB%98%E6%95%88%E7%BB%98%E5%9B%BE/13-%E9%AB%98%E6%95%88%E7%BB%98%E5%9B%BE.md)
+   - [iOS 事件处理机制与图像渲染过程](http://www.cocoachina.com/game/20151202/14549.html)
+
+<h4 id='13-1'> 理解 iOS 渲染框架运作机理 </h4>
+
+`UIKit`是常用的框架，显示、动画都通过`CoreAnimation`。`CoreAnimation`是核心动画，依赖于`OpenGL ES`做``GPU``渲染，`CoreGraphics`做`CPU`渲染；最底层的`GraphicsHardWare`是图形硬件。
+
+![https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/iOS%E6%B8%B2%E6%9F%93%E6%A1%86%E6%9E%B6.png?raw=true](渲染框架)
+
+<h4 id='13-2'> 理解 CALayer </h4>
+
+在`iOS`当中，所有的视图都从一个叫做`UIView`的基类派生而来，`UIView`可以处理触摸事件，可以支持基于`Core Graphics`绘图，可以做仿射变换（例如旋转或者缩放），或者简单的类似于滑动或者渐变的动画。
+
+`CALayer`类在概念上和`UIView`类似，同样也是一些被层级关系树管理的矩形块，同样也可以包含一些内容（像图片，文本或者背景色），管理子图层的位置。它们有一些方法和属性用来做动画和变换。和`UIView`最大的不同是`CALayer`不处理用户的交互。`CALayer`并不清楚具体的响应链。
+
+`UIView`和`CALayer`是一个平行的层级关系，每一个`UIView`都有一个`CALayer`实例的图层属性，也就是所谓的`backing layer`，视图的职责就是创建并管理这个图层，以确保当子视图在层级关系中添加或者被移除的时候，他们关联的图层也同样对应在层级关系树当中有相同的操作。实际上这些背后关联的`Layer`图层才是真正用来在屏幕上显示和做动画，`UIView`仅仅是对它的一个封装，提供了一些`iOS`类似于处理触摸的具体功能，以及`Core Animation`底层方法的高级接口。
+
+`UIView `的` Layer` 在系统内部，被维护着三份同样的树形数据结构，分别是：
+
+- 图层树（这里是代码可以操纵的，设置属性的最终值会立刻在这里更新）；
+
+- 呈现树（是一个中间层，系统就在这一层上更改属性，进行各种渲染操作。比如一个动画是更改alpha值从0到1，那么在逻辑树上此属性会被立刻更新为最终属性1，而在动画树上会根据设置的动画时间从0逐步变化到1）；
+
+- 渲染树（其属性值就是当前正被显示在屏幕上的属性值）；
+
+<h4 id='13-3'> 渲染驱动器：CADisplayLink </h4>
+
+此处与<a href='#8-4-4'>Runloop中的定时器</a>重叠。
+
+`NSTimer` 其实就是 `CFRunLoopTimerRef`。一个 `NSTimer` 注册到` RunLoop` 后，`RunLoop` 会为其重复的时间点注册好事件。
+
+`RunLoop`为了节省资源，并不会在非常准确的时间点回调这个`Timer`。`Timer` 有个属性叫做 `Tolerance` (宽容度)，标示了当时间点到后，容许有多少最大误差。如果某个时间点被错过了，例如执行了一个很长的任务，则那个时间点的回调也会跳过去，不会延后执行。
+
+`RunLoop` 是用GCD的 `dispatch_source_t` 实现的` Timer`。 当调用 `NSObject` 的 `performSelecter:afterDelay`: 后，实际上其内部会创建一个 `Timer` 并添加到当前线程的 `RunLoop` 中。所以如果当前线程没有` RunLoop`，则这个方法会失效。当调用 `performSelector:onThread:` 时，实际上其会创建一个` Timer` 加到对应的线程去，同样的，如果对应线程没有 `RunLoop `该方法也会失效。
+
+`CADisplayLink `是一个和屏幕刷新率（每秒刷新60次）一致的定时器（但实际实现原理更复杂，和 `NSTimer` 并不一样，其内部实际是操作了一个 `Source`）。如果在两次屏幕刷新之间执行了一个长任务，那其中就会有一帧被跳过去，造成界面卡顿的感觉。
+
+<h4 id='13-4'> 渲染流程 </h4>
+
+此处在<a href='#8-4'>Runloop应用中均有提及</a>。
+
+![渲染流程](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/iOS%E6%B8%B2%E6%9F%93%E6%B5%81%E7%A8%8B.png?raw=true)
+
+通常来说，计算机系统中 `CPU`、`GPU`、显示器是以上面这种方式协同工作的。`CPU` 计算好显示内容提交到 `GPU`，`GPU` 渲染完成后将渲染结果放入帧缓冲区，随后视频控制器会按照 `VSync` 信号如下图所示，逐行读取帧缓冲区的数据，经过可能的数模转换传递给显示器显示。
+
+![屏幕渲染过程](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/%E5%B1%8F%E5%B9%95%E6%B8%B2%E6%9F%93%E8%BF%87%E7%A8%8B.png?raw=true)
+
+在 `VSync` 信号到来后，系统图形服务会通过 `CADisplayLink` 等机制通知` App`，`App `主线程开始在`CPU` 中计算显示内容，比如视图的创建、布局计算、图片解码、文本绘制等。随后 `CPU`会将计算好的内容提交到 `GPU`去，由 `GPU` 进行变换、合成、渲染。随后 `GPU` 会把渲染结果提交到帧缓冲区去，等待下一次` VSync` 信号到来时显示到屏幕上。由于垂直同步的机制，如果在一个 `VSync` 时间内，`CPU`或者`GPU`没有完成内容提交，则那一帧就会被丢弃，等待下一次机会再显示，而这时显示屏会保留之前的内容不变。这就是界面卡顿的原因。从上图中可以看到，`CPU` 和 `GPU`不论哪个阻碍了显示流程，都会造成掉帧现象。所以开发时，也需要分别对`CPU`和 `GPU`压力进行评估和优化。
+
+![runloop驱动渲染](https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/ios_vsync_runloop.png?raw=true)
+
+`iOS `的显示系统是由` VSync` 信号驱动的，`VSync` 信号由硬件时钟生成，每秒钟发出 60 次（这个值取决设备硬件，比如 `iPhone` 真机上通常是 59.97）。iOS 图形服务接收到` VSync` 信号后，会通过` IPC` 通知到 `App` 内。`App` 的 `Runloop` 在启动后会注册对应的 `CFRunLoopSource` 通过` mach_port `接收传过来的时钟信号通知，随后` Source `的回调会驱动整个 `App `的动画与显示。
+
+`Core Animation `在 `RunLoop` 中注册了一个 `Observer`，监听了 `BeforeWaiting` 和 `Exit` 事件。当一个触摸事件到来时，`RunLoop` 被唤醒，`App` 中的代码会执行一些操作，比如创建和调整视图层级、设置 `UIView` 的 `frame`、修改 `CALayer `的透明度、为视图添加一个动画；这些操作最终都会被` CALayer `标记，并通过` CATransaction `提交到一个中间状态去。当上面所有操作结束后，`RunLoop` 即将进入休眠（或者退出）时，关注该事件的` Observer `都会得到通知。这时 `Core Animation` 注册的那个` Observer `就会在回调中，把所有的中间状态合并提交到 ``GPU`` 去显示；如果此处有动画，通过` DisplayLink` 稳定的刷新机制会不断的唤醒`runloop`，使得不断的有机会触发`observer`回调，从而根据时间来不断更新这个动画的属性值并绘制出来。
+
+为了不阻塞主线程，`Core Animation` 的核心是` OpenGL ES` 的一个抽象物，所以大部分的渲染是直接提交给``GPU``来处理。 而`Core Graphics/Quartz 2D`的大部分绘制操作都是在主线程和``CPU``上同步完成的，比如自定义`UIView`的`drawRect`里用`CGContext`来画图。
+
+
+<h4 id='13-5'> 渲染时机 </h4>
+
+上面已经提到过：`Core Animation`在` RunLoop `中注册了一个 `Observer `监听` BeforeWaiting`(即将进入休眠) 和 `Exit` (即将退出`Loop`) 事件 。当在操作 UI 时，比如改变了` Frame`、更新了` UIView/CALayer `的层次时，或者手动调用了 `UIView/CALayer` 的` setNeedsLayout/setNeedsDisplay`方法后，这个 `UIView/CALayer` 就被标记为待处理，并被提交到一个全局的容器去。当`Oberver`监听的事件到来时，回调执行函数中会遍历所有待处理的`UIView/CAlayer` 以执行实际的绘制和调整，并更新` UI `界面。
+
+这个函数内部的调用栈大概是这样的：
+
+```objc
+_ZN2CA11Transaction17observer_callbackEP19__CFRunLoopObservermPv()
+    QuartzCore:CA::Transaction::observer_callback:
+        CA::Transaction::commit();
+            CA::Context::commit_transaction();
+                CA::Layer::layout_and_display_if_needed();
+                    CA::Layer::layout_if_needed();
+                          [CALayer layoutSublayers];
+                          [UIView layoutSubviews];
+                    CA::Layer::display_if_needed();
+                          [CALayer display];
+                          [UIView drawRect];
+```
+
+<h4 id='13-6'> GPU渲染 Vs. CPU渲染 </h4>
+
+`OpenGL中`，`GPU`屏幕渲染有以下两种方式：
+
+1. `On-Screen Rendering` :意为当前屏幕渲染，指的是`GPU`的渲染操作是在当前用于显示的屏幕缓冲区中进行。
+
+2. `Off-Screen Rendering `:意为离屏渲染，指的是`GPU`在当前屏幕缓冲区以外新开辟一个缓冲区进行渲染操作。 
+
+按照这样的说法，如果将不在``GPU``的当前屏幕缓冲区中进行的渲染都称为离屏渲染，那么就还有另一种特殊的“离屏渲染”方式：`CPU`渲染。如果我们重写了`drawRect`方法，并且使用任何`Core Graphics`的技术进行了绘制操作，就涉及到了`CPU`渲染。整个渲染过程由`CPU`在`App`内同步地完成，渲染得到的`bitmap`最后再交由`GPU`用于显示。
+
+相比于当前屏幕渲染，离屏渲染的代价是很高的，主要体现在两个方面：
+
+1. 创建新缓冲区
+
+	要想进行离屏渲染，首先要创建一个新的缓冲区。
+
+2. 上下文切换
+
+	离屏渲染的整个过程，需要多次切换上下文环境：先是从当前屏幕（`On-Screen`）切换到离屏（`Off-Screen`）；等到离屏渲染结束以后，将离屏缓冲区的渲染结果显示到屏幕上有需要将上下文环境从离屏切换到当前屏幕。而上下文环境的切换是要付出很大代价的。
+
+设置了以下属性时，都会触发离屏绘制：
+
+`shouldRasterize`（光栅化）
+
+`masks`（遮罩）
+
+`shadows`（阴影）
+
+`edge antialiasing`（抗锯齿）
+
+`group opacity`（不透明） 
+
+需要注意的是，如果`shouldRasterize`被设置成YES，在触发离屏绘制的同时，会将光栅化后的内容缓存起来，如果对应的`layer`及其`sublayers`没有发生改变，在下一帧的时候可以直接复用。这将在很大程度上提升渲染性能。 
+
+而其它属性如果是开启的，就不会有缓存，离屏绘制会在每一帧都发生。
+
+在开发时需要根据实际情况来选择最优的实现方式，尽量使用`On-Screen Rendering`。简单的`Off-Screen Rendering`可以考虑使用`Core Graphics`让`CPU`来渲染。
 
 <!--- 多态
 - 锁	-->
