@@ -60,7 +60,14 @@
        - <a href='#12-3-2'> Weex 事件响应原理
    - <a href='#12-4'> iOS上的Weex </a>
 
-<a href='#13'>十三. Tableview 优化 </a>
+<a href='#13'>十三. iOS 中的渲染 </a>
+
+   - <a href='#13-1'> iOS中的渲染框架结构 </a> 
+   - <a href='#13-2'> 理解CALayer </a>
+   - <a href='#13-3'> 渲染驱动器：CADisplayLink </a>
+   - <a href='#13-4'> 渲染过程 </a>
+   - <a href='#13-4'> 渲染时机 </a>
+   - <a href='#13-5'> CPU 渲染与 GPU 渲染 </a>
 
 <a href='#10'> 十. TCP/IP </a>   
 
@@ -1242,7 +1249,7 @@ weex有了JS-Native相互通信的能力后，再按照一定格式发送数据�
 
 `UIKit`是常用的框架，显示、动画都通过`CoreAnimation`。`CoreAnimation`是核心动画，依赖于`OpenGL ES`做``GPU``渲染，`CoreGraphics`做`CPU`渲染；最底层的`GraphicsHardWare`是图形硬件。
 
-![https://github.com/Rabbbbbbit/iOSReview/blob/master/imgs/iOS%E6%B8%B2%E6%9F%93%E6%A1%86%E6%9E%B6.png?raw=true](渲染框架)
+![渲染框架结构](https://raw.githubusercontent.com/Rabbbbbbit/iOSReview/master/imgs/iOS%E6%B8%B2%E6%9F%93%E6%A1%86%E6%9E%B6.png)
 
 <h4 id='13-2'> 理解 CALayer </h4>
 
