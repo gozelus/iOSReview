@@ -1,3 +1,4 @@
+# 严禁转载！
 <a href='#1'>一.objc对象内存模型</a>
 
 <a href='#2'>二.Runtime</a>
