@@ -207,10 +207,10 @@ typedef struct `categoty`_t {
 
 1. 类的名字（name）
 2. 类（cls）
-3. `categoty`中所有给类添加的实例方法的列表（`instanceMethods`）
-4. `categoty`中所有添加的类方法的列表（`classMethods`）
-5. `categoty`实现的所有协议的列表（`protocols`）
-6. `categoty`中添加的所有属性（`instanceProperties`）
+3. `category`中所有给类添加的实例方法的列表（`instanceMethods`）
+4. `category`中所有添加的类方法的列表（`classMethods`）
+5. `category`实现的所有协议的列表（`protocols`）
+6. `category`中添加的所有属性（`instanceProperties`）
 
 <h3 id = '3-4'> category 的加载 </h3>
 
