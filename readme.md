@@ -391,7 +391,7 @@ int main() {
     return 0;
 }
 ```
-比较核心的是以下内容:`__block_impl`结构体，`__mian_block_impl_0`结构体，`__main_block_func_0`函数，`&_NSConcreteStackBlock`，`__main_block_desc_0`结构体。
+比较核心的是以下内容:`__block_impl`结构体，`__main_block_impl_0`结构体，`__main_block_func_0`函数，`&_NSConcreteStackBlock`，`__main_block_desc_0`结构体。
 
 - `__block_impl`结构体:
 
@@ -415,7 +415,7 @@ int main() {
 
 2. 构造函数内部，将外部传递进来的`__main_block_func_0`函数指针，设置内部实际的`block`变量(`__block_impl`类型的结构体)的函数指针。
 
-3. 调用`block`时，取出`__mian_block_impl_0`类型结构体中的`__block_impl`类型的结构体的函数指针(`__main_block_func_0`)并调用。
+3. 调用`block`时，取出`__main_block_impl_0`类型结构体中的`__block_impl`类型的结构体的函数指针(`__main_block_func_0`)并调用。
 
 至此，一个简单的`block`原理描述完毕。
 	
